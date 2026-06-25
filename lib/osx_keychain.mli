@@ -15,6 +15,11 @@ type backend =
   | File_based
   | Data_protection  (** experimental — requires provisioning; see above *)
 
+(** Internet-password protocols (the subset mapped to [kSecAttrProtocol*]). *)
+type protocol =
+  | Http | Https | Ftp | Ftps | Smtp
+  | Imap | Imaps | Pop3 | Pop3s | Ssh | Ldap | Ldaps
+
 (** A classification of the most commonly handled [OSStatus] result codes.
     [Other] carries everything else (consult {!field-status}). *)
 type error_code =
@@ -83,4 +88,83 @@ module Generic_password : sig
     account:string ->
     unit ->
     (unit, error) result
+
+  (** Identifying attributes of a stored item (no secret data). *)
+  type info = {
+    service : string;
+    account : string;
+    label : string option;
+  }
+
+  (** [list ?backend ?service ()] returns the attributes of matching items —
+      filtered to [service] if given, otherwise every generic-password item.
+      Returns metadata only, so it does not prompt for or expose secrets. *)
+  val list :
+    ?backend:backend ->
+    ?service:string ->
+    unit ->
+    (info list, error) result
+end
+
+(** Internet passwords — identified by [(server, account)] plus the optional
+    [protocol], [port], [path] and [security_domain] that together form the
+    keychain's primary key for this class. Operations that target a specific
+    item ([get]/[delete]) must pass the same identifying attributes that [set]
+    used, or they will not match. *)
+module Internet_password : sig
+  (** Store [secret], creating or overwriting (upsert). *)
+  val set :
+    ?backend:backend ->
+    ?label:string ->
+    ?protocol:protocol ->
+    ?port:int ->
+    ?path:string ->
+    ?security_domain:string ->
+    server:string ->
+    account:string ->
+    string ->
+    (unit, error) result
+
+  (** [Ok (Some secret)] if present, [Ok None] if absent. *)
+  val get :
+    ?backend:backend ->
+    ?protocol:protocol ->
+    ?port:int ->
+    ?path:string ->
+    ?security_domain:string ->
+    server:string ->
+    account:string ->
+    unit ->
+    (string option, error) result
+
+  (** Remove the item; idempotent (missing item is [Ok ()]). *)
+  val delete :
+    ?backend:backend ->
+    ?protocol:protocol ->
+    ?port:int ->
+    ?path:string ->
+    ?security_domain:string ->
+    server:string ->
+    account:string ->
+    unit ->
+    (unit, error) result
+
+  (** Identifying attributes of a stored item (no secret data). [server] etc.
+      are optional because the keychain may not record every attribute. *)
+  type info = {
+    account : string;
+    server : string option;
+    path : string option;
+    security_domain : string option;
+    label : string option;
+  }
+
+  (** [list ?backend ?server ?protocol ()] returns matching items' attributes,
+      optionally filtered by [server] and/or [protocol]. Metadata only. *)
+  val list :
+    ?backend:backend ->
+    ?server:string ->
+    ?protocol:protocol ->
+    unit ->
+    (info list, error) result
 end

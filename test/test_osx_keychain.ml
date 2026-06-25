@@ -4,6 +4,7 @@
 open Osx_keychain
 
 let service = Printf.sprintf "com.osx-keychain.test.%d" (Unix.getpid ())
+let server = Printf.sprintf "test-%d.osx-keychain.invalid" (Unix.getpid ())
 
 (* Unwrap a result, turning a keychain error into a test failure. *)
 let ok = function
@@ -86,6 +87,76 @@ let test_label () =
     (ok (Generic_password.get ~service ~account ()));
   cleanup account
 
+let test_generic_list () =
+  let svc = service ^ ".list" in
+  let accounts = [ "a1"; "a2"; "a3" ] in
+  let drop () = List.iter (fun a -> ignore (Generic_password.delete ~service:svc ~account:a ())) accounts in
+  drop ();
+  List.iter (fun a -> ok (Generic_password.set ~service:svc ~account:a "x")) accounts;
+  let listed =
+    ok (Generic_password.list ~service:svc ())
+    |> List.map (fun (i : Generic_password.info) -> i.account)
+    |> List.sort compare
+  in
+  Alcotest.(check (list string)) "enumerated accounts" accounts listed;
+  drop ()
+
+(* Internet passwords ------------------------------------------------------- *)
+
+let test_internet_roundtrip () =
+  let account = "alice" in
+  let args () = Internet_password.delete ~server ~account ~protocol:Https ~port:443 ~path:"/login" () in
+  ignore (args ());
+  ok (Internet_password.set ~server ~account ~protocol:Https ~port:443 ~path:"/login" "s3kr3t");
+  Alcotest.check opt_string "internet round-trip"
+    (Some "s3kr3t")
+    (ok (Internet_password.get ~server ~account ~protocol:Https ~port:443 ~path:"/login" ()));
+  ok (args ());
+  Alcotest.check opt_string "gone after delete"
+    None
+    (ok (Internet_password.get ~server ~account ~protocol:Https ~port:443 ~path:"/login" ()))
+
+(* port is part of the primary key, so two items with the same server/account
+   but different ports must coexist independently. *)
+let test_internet_distinct_by_port () =
+  let account = "bob" in
+  let get port = Internet_password.get ~server ~account ~protocol:Https ~port () in
+  let set port v = Internet_password.set ~server ~account ~protocol:Https ~port v in
+  let del port = ignore (Internet_password.delete ~server ~account ~protocol:Https ~port ()) in
+  del 443; del 8443;
+  ok (set 443 "a");
+  ok (set 8443 "b");
+  Alcotest.check opt_string "port 443" (Some "a") (ok (get 443));
+  Alcotest.check opt_string "port 8443" (Some "b") (ok (get 8443));
+  del 443; del 8443
+
+let test_internet_upsert () =
+  let account = "carol" in
+  let del () = ignore (Internet_password.delete ~server ~account ~protocol:Imaps ~port:993 ()) in
+  del ();
+  ok (Internet_password.set ~server ~account ~protocol:Imaps ~port:993 "first");
+  ok (Internet_password.set ~server ~account ~protocol:Imaps ~port:993 "second");
+  Alcotest.check opt_string "second write wins"
+    (Some "second")
+    (ok (Internet_password.get ~server ~account ~protocol:Imaps ~port:993 ()));
+  del ()
+
+let test_internet_list () =
+  let srv = server ^ ".list" in
+  let accounts = [ "u1"; "u2" ] in
+  let drop () =
+    List.iter (fun a -> ignore (Internet_password.delete ~server:srv ~account:a ~protocol:Https ~port:443 ())) accounts
+  in
+  drop ();
+  List.iter (fun a -> ok (Internet_password.set ~server:srv ~account:a ~protocol:Https ~port:443 "x")) accounts;
+  let listed =
+    ok (Internet_password.list ~server:srv ())
+    |> List.map (fun (i : Internet_password.info) -> i.account)
+    |> List.sort compare
+  in
+  Alcotest.(check (list string)) "enumerated internet accounts" accounts listed;
+  drop ()
+
 (* Guard: the OSStatus values the library branches on must match the SDK header
    values extracted into reference/errsec.tsv. Verifies by name, so a transposed
    number fails loudly. Only runs when dune supplies the TSV path. *)
@@ -141,7 +212,14 @@ let () =
       case "delete removes" test_delete_removes;
       case "delete is idempotent" test_delete_idempotent;
       case "mem" test_mem;
-      case "label" test_label ]
+      case "label" test_label;
+      case "list / enumerate" test_generic_list ]
+  in
+  let internet =
+    [ case "round-trip" test_internet_roundtrip;
+      case "distinct by port" test_internet_distinct_by_port;
+      case "upsert" test_internet_upsert;
+      case "list / enumerate" test_internet_list ]
   in
   let guard =
     match Sys.getenv_opt "OSX_KEYCHAIN_ERRSEC_TSV" with
@@ -149,4 +227,6 @@ let () =
     | None -> []
   in
   Alcotest.run "osx-keychain"
-    [ ("generic_password", generic); ("guard", guard) ]
+    [ ("generic_password", generic);
+      ("internet_password", internet);
+      ("guard", guard) ]

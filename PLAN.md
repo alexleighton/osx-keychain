@@ -304,9 +304,14 @@ codes and 163 `kSec*` globals**, too many to work from memory.
   `errsec.tsv`). No GUI prompt, no keychain residue. opam file + dune packaging
   in place. Remaining for release polish: README, CI workflow.
 
-- **Phase 2 — Internet passwords & richer queries (file-based).**
-  `Internet_password` (server/protocol/port/path), return-attributes,
-  `kSecMatchLimitAll` enumeration, explicit `update`.
+- **Phase 2 — Internet passwords & richer queries (file-based). ✅ DONE.**
+  `Internet_password` set/get/delete keyed on server/account (+ optional
+  protocol/port/path/security_domain), with a `protocol` variant. Attribute
+  enumeration (`kSecReturnAttributes` + `kSecMatchLimitAll`) via a new
+  `osxkc_copy_attrs` stub → `Generic_password.list` / `Internet_password.list`
+  returning identifying attributes only (no secrets, no prompt). Suite green
+  **14/14** unsigned, including a primary-key test (same server/account, two
+  ports coexist) and enumeration round-trips. No keychain residue.
 
 - **Phase 3 — Ergonomics & release.**
   `bytes` + wipe helpers, optional `osx-keychain-lwt`, docs/examples (including a

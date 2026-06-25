@@ -158,8 +158,11 @@ end
   guarantee secret erasure — this is the one thing the CLI route also can't do.
 - Every public function returns `result`; no exceptions across the boundary.
 
-**Open decision — default backend (needs a call).** The research (notes §1, §3)
-surfaced a real tension:
+**Decided: default `File_based`, `Data_protection` is explicit opt-in.**
+(Confirmed empirically — programs routinely read a stored credential like an
+API token from the file-based keychain via `security find-generic-password` on an unsigned
+process; our default mode is a drop-in for exactly that.) The research
+(notes §1, §3) surfaced the underlying tension:
 - The data-protection keychain is the modern, non-deprecated, feature-rich path
   (biometrics, accessibility, sync) and walls our deletes off from the shared
   system keychain — *but it requires code-signing entitlements*. An unsigned
@@ -168,14 +171,19 @@ surfaced a real tension:
 - The file-based keychain works unsigned with no entitlements, but is on the road
   to deprecation and can't do biometrics/sync.
 
-**Recommendation: default `File_based`, make `Data_protection` an explicit
-opt-in.** A library whose default mode fails out-of-the-box for most of its
+Rationale: a library whose default mode fails out-of-the-box for most of its
 likely callers (unsigned tools) is a bad default; users who need the DP-only
 features are already in signed-app-bundle territory and can opt in. (This
 *diverges* from the notes' "default to DP" recommendation, which is written for
 app developers, not a general-purpose library.) Tests default to `File_based`
 for green CI, with a separate signed/manual lane exercising `Data_protection`.
-Pending your agreement.
+
+Note for the file-based path: its access control is **ACL + trusted-apps**, not
+entitlements — a *different* binary reading an item another app created can
+trigger a one-time GUI "allow" prompt (this is why the `security` CLI is silent
+but our binary might prompt on first read of a `security`-created item). Manage
+via the trusted-app list on `SecItemCopyMatching`; relevant when we swap such a
+`security`-CLI subprocess call for this library.
 
 ## Reference material (`reference/`)
 

@@ -8,8 +8,8 @@ closest precedents are the `osx-*` family of thin C-API bindings
 (`osx-cf`, `osx-secure-transport`, …) and the `cf` CoreFoundation bindings.
 
 The realistic alternative today is shelling out to `/usr/bin/security`. That
-works (it's how most programs read a stored credential — an API token, app password, etc.), but it's clumsy in ways
-a native binding fixes **without any code-signing or entitlements**:
+works (it's how most programs read a stored credential — an API token, app password, etc.), but it's clumsy
+in ways a native binding fixes **without any code-signing or entitlements**:
 
 - **Structured results.** Real `OSStatus` codes and a typed `result`, instead of
   parsing CLI text + exit codes. "Not found" is `Ok None`, not a string match.
@@ -313,10 +313,15 @@ codes and 163 `kSec*` globals**, too many to work from memory.
   **14/14** unsigned, including a primary-key test (same server/account, two
   ports coexist) and enumeration round-trips. No keychain residue.
 
-- **Phase 3 — Ergonomics & release.**
-  `bytes` + wipe helpers, optional `osx-keychain-lwt`, docs/examples (including a
-  worked replacement for a `security`-CLI shell-out), then submit to
-  `opam-repository`.
+- **Phase 3 — Ergonomics & docs. ✅ DONE (release plumbing deferred).**
+  `to_string` error pretty-printer; `get_bytes` (caller-owned mutable buffer) +
+  `wipe` helper with the GC best-effort caveat documented; error type doc note on
+  which codes actually surface (incl. the upsert TOCTOU race). `README.md` with
+  quickstart, a worked `security`-CLI replacement, internet/enumeration/secret-
+  hygiene examples; `examples/readme_examples.ml` compiles those snippets against
+  the in-tree lib so the docs can't drift. Suite green **15/15**.
+  Deferred to "tomorrow" (explicit user call): CI workflow, opam-repository
+  submission, optional `osx-keychain-lwt`.
 
 - **Deferred (post-v1, only with a signed-app consumer + a way to test):**
   the `Data_protection` backend, `kSecAttrAccessible` classes,
@@ -335,4 +340,5 @@ codes and 163 `kSec*` globals**, too many to work from memory.
    keychain? Validate on a real runner.
 3. ~~Default backend~~ — **resolved: `File_based` default; DP deferred-experimental.**
 4. Whether to expose `SecItemUpdate` directly in v1 or keep it behind upsert only.
-5. Secret-erasure story: how hard to try given OCaml's moving GC — document limits vs. add a `bytes`-based zeroing path.
+5. ~~Secret-erasure story~~ — **resolved (Phase 3): `get_bytes` + `wipe`, with the
+   GC best-effort limitation documented; secrets stay `string` by default.**

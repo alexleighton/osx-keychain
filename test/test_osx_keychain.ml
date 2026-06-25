@@ -9,7 +9,7 @@ let server = Printf.sprintf "test-%d.osx-keychain.invalid" (Unix.getpid ())
 (* Unwrap a result, turning a keychain error into a test failure. *)
 let ok = function
   | Ok x -> x
-  | Error e -> Alcotest.failf "keychain error: status=%d message=%S" e.status e.message
+  | Error e -> Alcotest.failf "keychain error: %s" (Osx_keychain.to_string e)
 
 let cleanup account = ignore (Generic_password.delete ~service ~account ())
 
@@ -85,6 +85,20 @@ let test_label () =
   Alcotest.check opt_string "label does not disturb the value"
     (Some "x")
     (ok (Generic_password.get ~service ~account ()));
+  cleanup account
+
+let test_get_bytes_and_wipe () =
+  let account = "bytes" in
+  cleanup account;
+  ok (Generic_password.set ~service ~account "wipe-me");
+  let b =
+    match ok (Generic_password.get_bytes ~service ~account ()) with
+    | Some b -> b
+    | None -> Alcotest.fail "expected bytes"
+  in
+  Alcotest.(check string) "bytes match" "wipe-me" (Bytes.to_string b);
+  Osx_keychain.wipe b;
+  Alcotest.(check string) "wiped to zeros" (String.make 7 '\000') (Bytes.to_string b);
   cleanup account
 
 let test_generic_list () =
@@ -213,6 +227,7 @@ let () =
       case "delete is idempotent" test_delete_idempotent;
       case "mem" test_mem;
       case "label" test_label;
+      case "get_bytes + wipe" test_get_bytes_and_wipe;
       case "list / enumerate" test_generic_list ]
   in
   let internet =

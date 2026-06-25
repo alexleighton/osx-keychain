@@ -87,6 +87,26 @@ type error = {
 let error status =
   { status; code = code_of_status status; message = c_error_message status }
 
+let string_of_code = function
+  | Item_not_found -> "Item_not_found"
+  | Duplicate_item -> "Duplicate_item"
+  | Auth_failed -> "Auth_failed"
+  | User_canceled -> "User_canceled"
+  | Interaction_not_allowed -> "Interaction_not_allowed"
+  | Missing_entitlement -> "Missing_entitlement"
+  | Param -> "Param"
+  | Other -> "Other"
+
+let to_string e =
+  Printf.sprintf "%s (OSStatus %d): %s" (string_of_code e.code) e.status e.message
+
+let wipe b = Bytes.fill b 0 (Bytes.length b) '\000'
+
+(* The secret string from c_copy_data is freshly allocated and unaliased, so
+   reinterpreting it as mutable bytes hands the caller a buffer it solely owns
+   (and may [wipe]). No extra copy. *)
+let to_bytes_opt = function Some s -> Some (Bytes.unsafe_of_string s) | None -> None
+
 (* int-attrs = class + (data-protection flag) + caller-supplied extras. *)
 let iattrs ~item_class ~backend extra =
   let dp = match backend with File_based -> [] | Data_protection -> [ (i_use_dp, 1) ] in
@@ -127,6 +147,9 @@ module Generic_password = struct
     if st = err_success then Ok (Some data)
     else if st = err_item_not_found then Ok None
     else Error (error st)
+
+  let get_bytes ?backend ~service ~account () =
+    Result.map to_bytes_opt (get ?backend ~service ~account ())
 
   let mem ?(backend = File_based) ~service ~account () =
     let q_s = Array.of_list (id ~service ~account) in
@@ -199,6 +222,10 @@ module Internet_password = struct
     if st = err_success then Ok (Some data)
     else if st = err_item_not_found then Ok None
     else Error (error st)
+
+  let get_bytes ?backend ?protocol ?port ?path ?security_domain ~server ~account () =
+    Result.map to_bytes_opt
+      (get ?backend ?protocol ?port ?path ?security_domain ~server ~account ())
 
   let delete ?(backend = File_based) ?protocol ?port ?path ?security_domain
       ~server ~account () =

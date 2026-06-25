@@ -1,0 +1,5 @@
+; Compiles the README snippets against the in-tree library (typecheck only;
+; never executed, so it touches no keychain).
+(executable
+ (name readme_examples)
+ (libraries osx_keychain))

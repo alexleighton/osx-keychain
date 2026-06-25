@@ -36,12 +36,30 @@ type error_code =
 val code_of_status : int -> error_code
 
 (** A keychain failure: the raw [OSStatus], its classification, and the system's
-    human-readable message ([SecCopyErrorMessageString]). *)
+    human-readable message ([SecCopyErrorMessageString]).
+
+    Note on which codes you actually see here: this library folds the "expected"
+    statuses into successes — a missing item is [Ok None] (from [get]) or [Ok ()]
+    (from [delete]), and a duplicate on [set] is resolved by updating in place —
+    so an [Error] generally carries a {e genuine} failure ([Auth_failed],
+    [Interaction_not_allowed], [Missing_entitlement], [Param], …). The exception
+    is a rare TOCTOU race: if an item is deleted between [set]'s add (which sees
+    a duplicate) and its follow-up update, you can get [Error] with
+    [code = Item_not_found]. *)
 type error = {
   status : int;
   code : error_code;
   message : string;
 }
+
+(** A one-line rendering, e.g. ["Auth_failed (OSStatus -25293): ..."]. *)
+val to_string : error -> string
+
+(** Overwrite a buffer with zero bytes — for wiping a secret after use (see
+    {!Generic_password.get_bytes}). Best-effort only: OCaml's garbage collector
+    may have made transient copies this cannot reach, and the OS keeps the
+    secret in its own memory regardless, so this is hygiene, not a guarantee. *)
+val wipe : bytes -> unit
 
 (** Generic passwords — keyed by [(service, account)], the primary key the
     keychain uses to decide item identity.
@@ -70,6 +88,15 @@ module Generic_password : sig
     account:string ->
     unit ->
     (string option, error) result
+
+  (** As {!get}, but returns the secret as a caller-owned mutable [bytes] that
+      can be {!wipe}d when no longer needed. *)
+  val get_bytes :
+    ?backend:backend ->
+    service:string ->
+    account:string ->
+    unit ->
+    (bytes option, error) result
 
   (** [mem ?backend ~service ~account ()] is [Ok true] iff the item exists,
       without returning its data. *)
@@ -136,6 +163,18 @@ module Internet_password : sig
     account:string ->
     unit ->
     (string option, error) result
+
+  (** As {!get}, but returns the secret as a caller-owned mutable [bytes]. *)
+  val get_bytes :
+    ?backend:backend ->
+    ?protocol:protocol ->
+    ?port:int ->
+    ?path:string ->
+    ?security_domain:string ->
+    server:string ->
+    account:string ->
+    unit ->
+    (bytes option, error) result
 
   (** Remove the item; idempotent (missing item is [Ok ()]). *)
   val delete :

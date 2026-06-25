@@ -1,6 +1,25 @@
+; Unit tests: pure, no keychain access. Safe under `dune runtest` and in
+; sandboxed CI (including opam-repository, whose sandbox blocks keychain access).
+; Attached to the default `runtest` alias.
 (test
- (name test_osx_keychain)
- (libraries osx_keychain alcotest unix)
+ (name test_unit)
+ (modules test_unit)
+ (libraries osx_keychain alcotest)
  (action
   (setenv OSX_KEYCHAIN_ERRSEC_TSV %{dep:../reference/errsec.tsv}
    (run %{test} --compact))))
+
+; Integration tests: hit the real login keychain, so they are kept OFF the
+; `runtest` alias — neither `dune runtest`, `opam install --with-test`, nor the
+; sandboxed opam-repository CI runs them. Run locally with:
+;   dune build @integration
+(executable
+ (name test_integration)
+ (modules test_integration)
+ (libraries osx_keychain alcotest unix))
+
+(rule
+ (alias integration)
+ (deps test_integration.exe)
+ (action
+  (run %{dep:test_integration.exe} --compact)))

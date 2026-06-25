@@ -171,51 +171,6 @@ let test_internet_list () =
   Alcotest.(check (list string)) "enumerated internet accounts" accounts listed;
   drop ()
 
-(* Guard: the OSStatus values the library branches on must match the SDK header
-   values extracted into reference/errsec.tsv. Verifies by name, so a transposed
-   number fails loudly. Only runs when dune supplies the TSV path. *)
-let parse_errsec path =
-  let tbl = Hashtbl.create 512 in
-  let ic = open_in path in
-  Fun.protect ~finally:(fun () -> close_in_noerr ic) (fun () ->
-    (try ignore (input_line ic) with End_of_file -> ());
-    try
-      while true do
-        match String.split_on_char '\t' (input_line ic) with
-        | name :: value :: _ ->
-          (match int_of_string_opt (String.trim value) with
-           | Some v -> Hashtbl.replace tbl name v
-           | None -> ())
-        | _ -> ()
-      done
-    with End_of_file -> ());
-  tbl
-
-let test_errsec_guard () =
-  match Sys.getenv_opt "OSX_KEYCHAIN_ERRSEC_TSV" with
-  | None -> Alcotest.fail "errsec TSV path not provided"
-  | Some path ->
-    let tbl = parse_errsec path in
-    let cases =
-      [ ("errSecItemNotFound", Item_not_found);
-        ("errSecDuplicateItem", Duplicate_item);
-        ("errSecAuthFailed", Auth_failed);
-        ("errSecUserCanceled", User_canceled);
-        ("errSecInteractionNotAllowed", Interaction_not_allowed);
-        ("errSecMissingEntitlement", Missing_entitlement);
-        ("errSecParam", Param) ]
-    in
-    List.iter
-      (fun (name, expected) ->
-        match Hashtbl.find_opt tbl name with
-        | None -> Alcotest.failf "%s missing from errsec.tsv" name
-        | Some v ->
-          Alcotest.(check bool)
-            (Printf.sprintf "%s (%d) classifies correctly" name v)
-            true
-            (code_of_status v = expected))
-      cases
-
 let () =
   let case name f = Alcotest.test_case name `Quick f in
   let generic =
@@ -236,12 +191,6 @@ let () =
       case "upsert" test_internet_upsert;
       case "list / enumerate" test_internet_list ]
   in
-  let guard =
-    match Sys.getenv_opt "OSX_KEYCHAIN_ERRSEC_TSV" with
-    | Some _ -> [ case "errSec values match SDK" test_errsec_guard ]
-    | None -> []
-  in
-  Alcotest.run "osx-keychain"
+  Alcotest.run "osx-keychain-integration"
     [ ("generic_password", generic);
-      ("internet_password", internet);
-      ("guard", guard) ]
+      ("internet_password", internet) ]

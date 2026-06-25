@@ -261,11 +261,22 @@ codes and 163 `kSec*` globals**, too many to work from memory.
 - **Tag-table guard:** assert every `kSec*` / `errSec*` name the code references
   exists in `reference/{ksec,errsec}.tsv`, so a mistyped constant fails loudly
   rather than silently writing to the wrong attribute.
+- **Two suites (`test/`):** a **unit** suite (`test_unit`, attached to `runtest`)
+  that is pure — error `to_string`, `code_of_status`, `wipe`, and the errSec
+  guard — no keychain access, so it runs anywhere including sandboxed CI; and an
+  **integration** suite (`test_integration`, detached on the `@integration`
+  alias) holding all keychain round-trips. Rationale: opam-repository CI *does*
+  run `@runtest {with-test}` on macOS workers under a sandbox that blocks
+  keychain access (it returns empty/exit-0, per opam#4389), so keychain tests
+  would fail there. Keeping them off `runtest` means `dune runtest`, `opam
+  install --with-test`, and opam-repo CI all run only the safe unit suite; the
+  keychain suite is opt-in via `dune build @integration`. (Precedent: `ca-certs`
+  filters its keychain tests off macOS; we're macOS-only so we detach instead.)
 - **CI:** GitHub Actions `macos-latest` runner, matrix over a couple of OCaml
-  versions. The whole suite runs against the **`File_based`** backend on the
-  unsigned `dune` test binary — no signing, no entitlements, no Developer
-  account. (Phase 0.5 proved DP is unreachable there: `-34018` unsigned, and a
-  *kernel kill* with the entitlement — so there is no CI lane for DP, by design.)
+  versions, running `dune build @integration` for the real keychain coverage
+  (the unit suite runs everywhere). On the unsigned `dune` binary, **`File_based`**
+  only — no signing, no entitlements, no Developer account. (Phase 0.5 proved DP
+  is unreachable: `-34018` unsigned, *kernel kill* with the entitlement.)
   Phase 0 saw no unlock prompt interactively; validate on a real runner (Q2).
 - **Deferred features are not CI-tested.** The `Data_protection` path, biometric
   / `SecAccessControl`, and sync need provisioning + (for biometrics) Touch ID +

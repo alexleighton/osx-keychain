@@ -3,3 +3,6 @@ _build/
 
 # Project-local opam switch (see scripts/setup-switch.sh)
 _opam/
+
+# dune @install artifact
+*.install

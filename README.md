@@ -36,8 +36,13 @@ opam switch from the declared dependencies:
 ./scripts/setup-switch.sh   # creates ./_opam with deps (incl. test deps)
 eval $(opam env)            # activate it in this shell
 dune build
-dune runtest                # integration tests — they touch your login keychain
+dune runtest                # unit tests — pure, no keychain access
+dune build @integration     # integration tests — touch your login keychain
 ```
+
+The integration suite hits the real login keychain, so it's kept off the default
+`runtest` alias (and out of `opam install --with-test` / packaged CI, whose
+sandbox blocks keychain access). Run it explicitly with `dune build @integration`.
 
 `setup-switch.sh` is idempotent — re-run it to pick up new dependencies. Pin a
 compiler with `OCAML_COMPILER=5.3.0 ./scripts/setup-switch.sh`. If you already

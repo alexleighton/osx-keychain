@@ -103,18 +103,29 @@ module Osx_keychain : sig
     | After_first_unlock_this_device_only
     | When_passcode_set_this_device_only
 
+  (* Which keychain to target — see the data-protection decision below. *)
+  type backend = File_based | Data_protection
+
+  (* Tri-state, because a query that omits synchronizable silently matches
+     only non-synchronizable items (notes §6). *)
+  type sync = No | Yes | Any
+
   module Generic_password : sig
     val set :
-      ?accessible:accessible ->
+      ?backend:backend ->          (* default: File_based — see decision *)
+      ?accessible:accessible ->    (* default: When_unlocked *)
+      ?synchronizable:sync ->      (* default: No *)
       ?label:string ->
       service:string -> account:string -> string ->
       (unit, error) result            (* add-or-update (upsert) *)
 
     val get :
+      ?backend:backend -> ?synchronizable:sync ->
       service:string -> account:string ->
       (string option, error) result    (* None = not found, Error = real failure *)
 
     val delete :
+      ?backend:backend -> ?synchronizable:sync ->   (* Any is often right here *)
       service:string -> account:string ->
       (unit, error) result
   end
@@ -126,15 +137,45 @@ end
 ```
 
 **Design rules:**
-- "not found" (`errSecItemNotFound`) is `Ok None` / not an `Error` — it is an
-  expected outcome, not a failure.
-- `set` is an upsert: try `SecItemAdd`; on `errSecDuplicateItem` fall back to
-  `SecItemUpdate`. Document the semantics.
+- "not found" (`errSecItemNotFound`, -25300) is `Ok None` / not an `Error` — it
+  is an expected outcome, not a failure.
+- `set` is an upsert: try `SecItemAdd`; on `errSecDuplicateItem` (-25299) fall
+  back to `SecItemUpdate`. **Three separate dicts** (notes §2): the match query
+  (full primary key, no value/return keys), the attrs-to-update (`kSecValueData`
+  only), and the add dict — never reuse one mutable dict across calls.
+- **Always include `kSecMatchLimit` and the full primary key on delete.** In the
+  data-protection keychain a limit-less delete removes *all* matches, and in the
+  file-based keychain an under-specified query can hit *other apps'/the system's*
+  items ("very dangerous", notes §1). We construct queries; we own this safety.
+- Map a named-error set off `errsec.tsv`: `Not_found`, `Duplicate`, `Auth_failed`,
+  `User_canceled` (distinct from auth failure!), `Interaction_not_allowed`,
+  `Missing_entitlement`, `Param` — everything else falls through to
+  `{ status; message }`. **Never** treat `errSecInteractionNotAllowed` (-25308)
+  as "delete and recreate" (notes §4) — it means "locked / not readable now".
 - Secrets in: accept `string` (and a `bytes` overload later so callers can
   zero the buffer). Secrets out: return `string` for v1; revisit `bytes` +
   wipe helper once the API settles. Document that OCaml's GC means we cannot
   guarantee secret erasure — this is the one thing the CLI route also can't do.
 - Every public function returns `result`; no exceptions across the boundary.
+
+**Open decision — default backend (needs a call).** The research (notes §1, §3)
+surfaced a real tension:
+- The data-protection keychain is the modern, non-deprecated, feature-rich path
+  (biometrics, accessibility, sync) and walls our deletes off from the shared
+  system keychain — *but it requires code-signing entitlements*. An unsigned
+  binary (which is what `dune exec`, most OCaml CLIs/daemons, and CI runners are)
+  hitting it fails with `errSecMissingEntitlement` (-34018).
+- The file-based keychain works unsigned with no entitlements, but is on the road
+  to deprecation and can't do biometrics/sync.
+
+**Recommendation: default `File_based`, make `Data_protection` an explicit
+opt-in.** A library whose default mode fails out-of-the-box for most of its
+likely callers (unsigned tools) is a bad default; users who need the DP-only
+features are already in signed-app-bundle territory and can opt in. (This
+*diverges* from the notes' "default to DP" recommendation, which is written for
+app developers, not a general-purpose library.) Tests default to `File_based`
+for green CI, with a separate signed/manual lane exercising `Data_protection`.
+Pending your agreement.
 
 ## Reference material (`reference/`)
 
@@ -147,7 +188,9 @@ codes and 163 `kSec*` globals**, too many to work from memory.
 - `keychain-notes.md` — distilled behavioral gotchas the headers don't state
   (data-protection keychain, the `errSecDuplicateItem` upsert dance,
   entitlements/`-34018`, accessibility classes, biometrics, sync, threading),
-  with inline Apple-docs citations. **Consult before finalizing API defaults.**
+  with inline Apple-docs citations (primarily Apple DTS engineer Quinn's
+  canonical `SecItem` forum threads). Error-code numerics cross-checked against
+  `errsec.tsv`. Already folded into the API sketch and design rules above.
 - See `reference/README.md` for provenance and regeneration.
 
 ## Build & packaging
@@ -183,9 +226,12 @@ codes and 163 `kSec*` globals**, too many to work from memory.
   exists in `reference/{ksec,errsec}.tsv`, so a mistyped constant fails loudly
   rather than silently writing to the wrong attribute.
 - **CI:** GitHub Actions `macos-latest` runner, matrix over a couple of OCaml
-  versions. Tests that touch the login keychain may need an unlocked keychain;
-  prefer creating an isolated test keychain or using the data-protection
-  keychain to avoid interactive unlock prompts in CI.
+  versions. Default the suite to the **`File_based`** backend — it works on the
+  unsigned `dune` test binary with no entitlements (the DP keychain would fail
+  with `-34018` there, notes §3). A separate, optional lane can `codesign --sign
+  - --entitlements …` the test binary to exercise `Data_protection` locally.
+  The Phase 0 spike saw no unlock prompt interactively, but validate on a real
+  runner (open Q2).
 - **Manual-only:** biometric / `SecAccessControl` paths can't run unattended
   (no Touch ID in CI) — gate behind an env var and document a manual checklist.
 
@@ -230,5 +276,9 @@ codes and 163 `kSec*` globals**, too many to work from memory.
    prompts. (Phase 0 saw no prompt interactively, but headless CI agents have no
    unlocked login keychain — still needs validating on a real runner.)
 3. Whether to expose `SecItemUpdate` directly in v1 or keep it behind upsert only.
-4. Minimum macOS deployment target (data-protection keychain availability, signing/entitlement needs for access groups & iCloud sync).
+4. **Default backend** — recommendation is `File_based` (see "Open decision"
+   above); awaiting sign-off. Entitlement/signing needs for `Data_protection`,
+   access groups & iCloud sync are now documented in `keychain-notes.md` §3/§6.
 5. Secret-erasure story: how hard to try given OCaml's moving GC — document limits vs. add a `bytes`-based zeroing path.
+6. Minimum macOS deployment target (affects which accessibility/access-control
+   constants are available — see `access_control_flags.tsv` `macos_since`).

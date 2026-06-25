@@ -1,0 +1,29 @@
+opam-version: "2.0"
+synopsis: "OCaml bindings to the macOS Keychain (SecItem* / generic passwords)"
+description: """
+A native binding to the macOS Keychain Services `SecItem*` API for storing and
+retrieving passwords, as a typed alternative to shelling out to the `security`
+CLI: structured `OSStatus` errors, exact binary round-trip, and no subprocess.
+
+v1 targets the file-based keychain (works on unsigned binaries, no entitlements).
+The data-protection keychain, biometrics, and iCloud sync require Apple Developer
+provisioning and are out of scope / experimental — see PLAN.md.
+"""
+maintainer: ["axlelonghorn@gmail.com"]
+authors: ["axlelonghorn@gmail.com"]
+license: "ISC"
+# TODO(repo): set these once the repository is published.
+homepage: "https://github.com/axlelonghorn/osx-keychain"
+bug-reports: "https://github.com/axlelonghorn/osx-keychain/issues"
+dev-repo: "git+https://github.com/axlelonghorn/osx-keychain.git"
+depends: [
+  "ocaml" {>= "4.08"}
+  "dune" {>= "3.0"}
+  "alcotest" {with-test}
+]
+available: [ os = "macos" ]
+build: [
+  ["dune" "subst"] {dev}
+  ["dune" "build" "-p" name "-j" jobs]
+  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
+]

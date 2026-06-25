@@ -293,12 +293,16 @@ codes and 163 `kSec*` globals**, too many to work from memory.
   `-34018` unsigned and kernel-killed with the restricted entitlement. Decision:
   **v1 = file-based only**, DP/biometrics/sync deferred as provisioning-gated.
 
-- **Phase 1 — Generic password MVP (file-based).**
-  `Generic_password` set/get/delete with upsert (three-dict discipline) and
-  delete-safety; named `error` set off `errsec.tsv` + `SecCopyErrorMessageString`;
-  the C-stub/typed layering; `caml_release_runtime_system` around every call.
-  Alcotest suite (round-trip, error paths, binary fidelity, tag-table guard) +
-  CI green, all unsigned.
+- **Phase 1 — Generic password MVP (file-based). ✅ DONE.**
+  `lib/` (`osx_keychain.ml{,i}` + `keychain_stubs.c`) + `test/`. `Generic_password`
+  set/get/mem/delete with upsert (three-dict discipline), idempotent delete,
+  named `error` set (`code_of_status` off `errsec.tsv`) +
+  `SecCopyErrorMessageString`, `caml_release_runtime_system` around every
+  `SecItem*` call, tag-table FFI boundary. Alcotest suite green **9/9** unsigned
+  (round-trip, binary fidelity, upsert, missing→`Ok None`, delete, idempotent
+  delete, mem, label, + errSec guard validating branch constants against
+  `errsec.tsv`). No GUI prompt, no keychain residue. opam file + dune packaging
+  in place. Remaining for release polish: README, CI workflow.
 
 - **Phase 2 — Internet passwords & richer queries (file-based).**
   `Internet_password` (server/protocol/port/path), return-attributes,

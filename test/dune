@@ -1,0 +1,6 @@
+(test
+ (name test_osx_keychain)
+ (libraries osx_keychain alcotest unix)
+ (action
+  (setenv OSX_KEYCHAIN_ERRSEC_TSV %{dep:../reference/errsec.tsv}
+   (run %{test} --compact))))

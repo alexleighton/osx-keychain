@@ -44,6 +44,11 @@ The integration suite hits the real login keychain, so it's kept off the default
 `runtest` alias (and out of `opam install --with-test` / packaged CI, whose
 sandbox blocks keychain access). Run it explicitly with `dune build @integration`.
 
+It cleans up after itself (per-test deletes plus an `at_exit` sweep). If a test
+process is ever hard-killed before that runs, sweep up the orphans with
+[`scripts/clean-test-keychain.sh`](scripts/clean-test-keychain.sh) (`--dry-run`
+to preview) — it deletes only the test-owned items via the `security` CLI.
+
 `setup-switch.sh` is idempotent — re-run it to pick up new dependencies. Pin a
 compiler with `OCAML_COMPILER=5.3.0 ./scripts/setup-switch.sh`. If you already
 have a suitable switch, just `dune build` / `dune runtest` directly.

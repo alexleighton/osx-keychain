@@ -1,5 +1,6 @@
 (* Integration tests — these hit the real login (file-based) keychain. Each test
-   works under a per-process service name and cleans up after itself. *)
+   works under a per-process service name and cleans up after itself, with an
+   [at_exit] [sweep] (below) as a catch-all for tests that fail before cleanup. *)
 
 open Osx_keychain
 
@@ -12,6 +13,34 @@ let ok = function
   | Error e -> Alcotest.failf "keychain error: %s" (Osx_keychain.to_string e)
 
 let cleanup account = ignore (Generic_password.delete ~service ~account ())
+
+(* Catch-all teardown: per-test cleanup is skipped when a test raises (a failed
+   [Alcotest.check] or an [ok] error), and the per-PID service means a later run
+   never reclaims those orphans. So enumerate everything under this process's
+   test service/server and delete it. Scoped to the per-PID names, so it can only
+   touch items these tests created — never real keychain data. Registered via
+   [at_exit], so it runs however the suite exits (pass, fail, or raise). *)
+let sweep () =
+  List.iter
+    (fun svc ->
+      match Generic_password.list ~service:svc () with
+      | Ok infos ->
+        List.iter
+          (fun (i : Generic_password.info) ->
+            ignore (Generic_password.delete ~service:svc ~account:i.account ()))
+          infos
+      | Error _ -> ())
+    [ service; service ^ ".list" ];
+  List.iter
+    (fun srv ->
+      match Internet_password.list ~server:srv () with
+      | Ok infos ->
+        List.iter
+          (fun (i : Internet_password.info) ->
+            ignore (Internet_password.delete ~server:srv ~account:i.account ()))
+          infos
+      | Error _ -> ())
+    [ server; server ^ ".list" ]
 
 let opt_string = Alcotest.(option string)
 
@@ -211,6 +240,7 @@ let test_internet_list () =
   drop ()
 
 let () =
+  at_exit sweep;
   let case name f = Alcotest.test_case name `Quick f in
   let generic =
     [ case "round-trip" test_roundtrip;

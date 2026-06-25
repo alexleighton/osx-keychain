@@ -137,4 +137,4 @@ usually signals a genuine failure — `Auth_failed`, `Interaction_not_allowed`,
 
 ## License
 
-ISC.
+MIT — see [LICENSE](LICENSE).

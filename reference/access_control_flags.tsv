@@ -1,0 +1,13 @@
+name	value	deprecated	macos_since
+kSecAccessControlUserPresence	1u<<0	no	
+kSecAccessControlBiometryAny	1u<<1	no	10.13.4
+kSecAccessControlTouchIDAny	1u<<1	yes	10.12.1
+kSecAccessControlBiometryCurrentSet	1u<<3	no	10.13.4
+kSecAccessControlTouchIDCurrentSet	1u<<3	yes	10.12.1
+kSecAccessControlDevicePasscode	1u<<4	no	10.11
+kSecAccessControlWatch	1u<<5	yes	10.15
+kSecAccessControlCompanion	1u<<5	no	15.0
+kSecAccessControlOr	1u<<14	no	10.12.1
+kSecAccessControlAnd	1u<<15	no	10.12.1
+kSecAccessControlPrivateKeyUsage	1u<<30	no	10.12.1
+kSecAccessControlApplicationPassword	1u<<31	no	10.12.1

@@ -55,6 +55,8 @@
 #define I_PROTOCOL 105
 #define I_PORT 106
 
+/* --- Tag -> CoreFoundation key/value translation ------------------------- */
+
 static CFStringRef string_key(int tag) {
   switch (tag) {
     case K_SERVICE:         return kSecAttrService;
@@ -87,6 +89,8 @@ static CFStringRef protocol_const(int v) {
     default: return kSecAttrProtocolHTTPS;
   }
 }
+
+/* --- Query/item dictionary assembly -------------------------------------- */
 
 /* Reads OCaml values — caller must hold the runtime lock. Allocates no OCaml. */
 static void add_string_attrs(CFMutableDictionaryRef q, value sattrs) {
@@ -165,13 +169,23 @@ static CFMutableDictionaryRef build_dict(value sattrs, value iattrs) {
   return q;
 }
 
+/* --- SecItem entry points (the OCaml externals) -------------------------- */
+
+/* Run a SecItem* call with the OCaml runtime lock released (see file header):
+   the call IPCs to securityd and must not freeze the runtime. Touch only
+   CoreFoundation between release and acquire — never OCaml values. */
+#define KC_WITH_RUNTIME_RELEASED(call) \
+  do {                                 \
+    caml_release_runtime_system();     \
+    (call);                            \
+    caml_acquire_runtime_system();     \
+  } while (0)
+
 CAMLprim value osxkc_add(value sattrs, value iattrs) {
   CAMLparam2(sattrs, iattrs);
   CFMutableDictionaryRef q = build_dict(sattrs, iattrs);
   OSStatus st;
-  caml_release_runtime_system();
-  st = SecItemAdd(q, NULL);
-  caml_acquire_runtime_system();
+  KC_WITH_RUNTIME_RELEASED(st = SecItemAdd(q, NULL));
   CFRelease(q);
   CAMLreturn(Val_int((int)st));
 }
@@ -182,9 +196,7 @@ CAMLprim value osxkc_copy_data(value sattrs, value iattrs) {
   CFMutableDictionaryRef q = build_dict(sattrs, iattrs);
   CFTypeRef out = NULL;
   OSStatus st;
-  caml_release_runtime_system();
-  st = SecItemCopyMatching(q, &out);
-  caml_acquire_runtime_system();
+  KC_WITH_RUNTIME_RELEASED(st = SecItemCopyMatching(q, &out));
   CFRelease(q);
   if (st == errSecSuccess && out != NULL && CFGetTypeID(out) == CFDataGetTypeID()) {
     CFDataRef d = (CFDataRef)out;
@@ -206,9 +218,7 @@ CAMLprim value osxkc_update(value qs, value qi, value us, value ui) {
   CFMutableDictionaryRef q = build_dict(qs, qi);
   CFMutableDictionaryRef u = build_dict(us, ui);
   OSStatus st;
-  caml_release_runtime_system();
-  st = SecItemUpdate(q, u);
-  caml_acquire_runtime_system();
+  KC_WITH_RUNTIME_RELEASED(st = SecItemUpdate(q, u));
   CFRelease(q);
   CFRelease(u);
   CAMLreturn(Val_int((int)st));
@@ -218,12 +228,12 @@ CAMLprim value osxkc_delete(value sattrs, value iattrs) {
   CAMLparam2(sattrs, iattrs);
   CFMutableDictionaryRef q = build_dict(sattrs, iattrs);
   OSStatus st;
-  caml_release_runtime_system();
-  st = SecItemDelete(q);
-  caml_acquire_runtime_system();
+  KC_WITH_RUNTIME_RELEASED(st = SecItemDelete(q));
   CFRelease(q);
   CAMLreturn(Val_int((int)st));
 }
+
+/* --- Result marshalling helpers (used by copy_attrs / error_message) ----- */
 
 /* CFString -> fresh OCaml string (UTF-8). Allocates OCaml; lock must be held. */
 static value cfstring_to_ml(CFStringRef s) {
@@ -284,9 +294,7 @@ CAMLprim value osxkc_copy_attrs(value sattrs, value iattrs) {
   CFMutableDictionaryRef q = build_dict(sattrs, iattrs);
   CFTypeRef out = NULL;
   OSStatus st;
-  caml_release_runtime_system();
-  st = SecItemCopyMatching(q, &out);
-  caml_acquire_runtime_system();
+  KC_WITH_RUNTIME_RELEASED(st = SecItemCopyMatching(q, &out));
   CFRelease(q);
   items = Atom(0);
   if (st == errSecSuccess && out != NULL &&
@@ -311,17 +319,7 @@ CAMLprim value osxkc_error_message(value status) {
   CAMLlocal1(str);
   CFStringRef msg = SecCopyErrorMessageString((OSStatus)Int_val(status), NULL);
   if (msg != NULL) {
-    CFIndex maxlen =
-        CFStringGetMaximumSizeForEncoding(CFStringGetLength(msg),
-                                          kCFStringEncodingUTF8) + 1;
-    char *buf = malloc((size_t)maxlen);
-    if (buf != NULL &&
-        CFStringGetCString(msg, buf, maxlen, kCFStringEncodingUTF8)) {
-      str = caml_copy_string(buf);
-    } else {
-      str = caml_copy_string("");
-    }
-    free(buf);
+    str = cfstring_to_ml(msg);
     CFRelease(msg);
   } else {
     str = caml_copy_string("");

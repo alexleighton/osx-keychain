@@ -29,12 +29,19 @@ macOS only.
 
 ## Install
 
-Not yet published to opam. Locally:
+Not yet published to opam. For a hermetic local setup, create a project-local
+opam switch from the declared dependencies:
 
 ```sh
+./scripts/setup-switch.sh   # creates ./_opam with deps (incl. test deps)
+eval $(opam env)            # activate it in this shell
 dune build
-dune runtest   # integration tests — they touch your login keychain
+dune runtest                # integration tests — they touch your login keychain
 ```
+
+`setup-switch.sh` is idempotent — re-run it to pick up new dependencies. Pin a
+compiler with `OCAML_COMPILER=5.3.0 ./scripts/setup-switch.sh`. If you already
+have a suitable switch, just `dune build` / `dune runtest` directly.
 
 In a project, depend on the `osx-keychain` library (module `Osx_keychain`).
 

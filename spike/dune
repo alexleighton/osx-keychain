@@ -1,8 +1,8 @@
-(executable
- (name spike)
+(executables
+ (names spike dp_probe)
  (foreign_stubs
   (language c)
-  (names keychain_stubs))
+  (names keychain_stubs dp_probe))
  (link_flags
   (-cclib -framework -cclib Security
    -cclib -framework -cclib CoreFoundation)))

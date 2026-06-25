@@ -6,34 +6,62 @@ Searching opam (`keychain`, `keyring`, `secret`, `credential`, `SecItem`,
 `Security.framework`) turns up **nothing that wraps the macOS Keychain**. The
 closest precedents are the `osx-*` family of thin C-API bindings
 (`osx-cf`, `osx-secure-transport`, …) and the `cf` CoreFoundation bindings.
-The CLI fallback (`/usr/bin/security`) is enough for plain password
-store/fetch/delete but cannot reach the features that actually justify a
-library:
 
-- `SecAccessControl` (Touch ID / Face ID / device-passcode / user-presence gating)
-- per-item accessibility classes (`kSecAttrAccessibleWhenUnlocked`, …)
-- the data-protection keychain (`kSecUseDataProtectionKeychain`)
-- iCloud sync (`kSecAttrSynchronizable`) and access groups
-- rich queries, `SecItemUpdate`, persistent refs, structured results/`OSStatus`
-- keeping secrets in `CFData` we control instead of passing them through
-  argv / stdout / the process table
+The realistic alternative today is shelling out to `/usr/bin/security`. That
+works (it's how most programs read a stored credential — an API token, app password, etc.), but it's clumsy in ways
+a native binding fixes **without any code-signing or entitlements**:
 
-So the goal is a **native ctypes binding to Keychain Services**, packaged in
-the `osx-` register as `osx-keychain`.
+- **Structured results.** Real `OSStatus` codes and a typed `result`, instead of
+  parsing CLI text + exit codes. "Not found" is `Ok None`, not a string match.
+- **Binary fidelity.** Secrets round-trip exactly, including embedded NULs and
+  high bytes — precisely where the CLI's `0x…` hex-dump is fragile.
+- **No subprocess.** No process spawn per operation; secrets don't pass through
+  argv / stdout / the process table / shell history.
+- **Typed, mistake-resistant API** over the same `SecItem*` calls the CLI makes.
+
+So the goal is a **hand-written C-stub binding to the modern `SecItem*` API**,
+packaged in the `osx-` register as `osx-keychain`. (The richer Keychain features
+— biometrics, the data-protection keychain, iCloud sync — are real, but they all
+require Apple Developer provisioning to use *and* to test; they are deliberately
+out of v1. See Scope.)
 
 ## Scope
 
-**In scope (v1):** generic & internet passwords; add / copy / update / delete;
-accessibility classes; data-protection keychain; structured `OSStatus` errors;
-ergonomic typed API returning `(_, error) result`.
+**The scope line is drawn at "what an unsigned binary can do *and we can test*."**
+A Phase 0.5 probe (`spike/dp_probe.*`) established this empirically on a stock
+machine:
 
-**Later:** `SecAccessControl` + biometric/`LAContext` gating; `kSecAttrSynchronizable`;
-access groups; rich multi-attribute queries / `kSecMatchLimitAll`; keys & certs
-(`kSecClassKey`, `kSecClassCertificate`), trust evaluation.
+| Signing | File-based keychain | Data-protection keychain |
+|---|---|---|
+| Unsigned / ad-hoc | ✅ works | ❌ `errSecMissingEntitlement` (-34018) |
+| Ad-hoc + `keychain-access-groups` entitlement | — | 💀 **kernel-killed at launch** |
 
-**Out of scope:** legacy file-based keychain management (create/unlock/lock files,
-`SecKeychainRef` APIs) beyond what the modern item API needs; we target the
-modern `SecItem*` interface.
+`keychain-access-groups` is a *restricted* entitlement: macOS only honors it via
+a provisioning profile, which requires a paid Apple Developer **Team ID**. So the
+entire data-protection keychain — and everything built on it (biometrics, sync,
+access groups) — is gated behind a Developer membership + signing both to *use*
+and to *test*. Neither our CI nor a typical contributor (nor a typical user of
+this library) has that, and we won't ask them to.
+
+**In scope (v1) — file-based keychain, fully testable unsigned:**
+- generic & internet passwords; add / copy / update (upsert) / delete;
+- structured `OSStatus` → typed errors; `(_, error) result` API;
+- exact binary round-trip; ACL / trusted-app prompt handling.
+
+**Deferred — experimental, provisioning-gated, NOT verified in CI:**
+- the `Data_protection` backend (kept as a `backend` parameter + code path, but
+  documented "requires a provisioning profile; unverified"); `kSecAttrAccessible`
+  classes; `kSecAttrSynchronizable` / iCloud; access groups. We won't build
+  `SecAccessControl` / biometric / `LAContext` gating until there's a concrete
+  signed-app consumer **and** a way to test it (Touch ID hardware + a human).
+- This isn't a one-way door: file-based and DP share the *same* `SecItem*` API,
+  so enabling DP later is a default/flag change, not a redesign (see "default
+  backend" below). The file-based store is reached via non-deprecated `SecItem*`
+  API and has no announced removal date, so v1 is not built on sand.
+
+**Out of scope:** the legacy `SecKeychain*` management API (create/unlock/lock
+files) — deprecated since ~macOS 12; we use only the modern `SecItem*` interface.
+Keys & certs (`kSecClassKey`, `kSecClassCertificate`), trust evaluation.
 
 ## Technical approach
 
@@ -234,14 +262,15 @@ codes and 163 `kSec*` globals**, too many to work from memory.
   exists in `reference/{ksec,errsec}.tsv`, so a mistyped constant fails loudly
   rather than silently writing to the wrong attribute.
 - **CI:** GitHub Actions `macos-latest` runner, matrix over a couple of OCaml
-  versions. Default the suite to the **`File_based`** backend — it works on the
-  unsigned `dune` test binary with no entitlements (the DP keychain would fail
-  with `-34018` there, notes §3). A separate, optional lane can `codesign --sign
-  - --entitlements …` the test binary to exercise `Data_protection` locally.
-  The Phase 0 spike saw no unlock prompt interactively, but validate on a real
-  runner (open Q2).
-- **Manual-only:** biometric / `SecAccessControl` paths can't run unattended
-  (no Touch ID in CI) — gate behind an env var and document a manual checklist.
+  versions. The whole suite runs against the **`File_based`** backend on the
+  unsigned `dune` test binary — no signing, no entitlements, no Developer
+  account. (Phase 0.5 proved DP is unreachable there: `-34018` unsigned, and a
+  *kernel kill* with the entitlement — so there is no CI lane for DP, by design.)
+  Phase 0 saw no unlock prompt interactively; validate on a real runner (Q2).
+- **Deferred features are not CI-tested.** The `Data_protection` path, biometric
+  / `SecAccessControl`, and sync need provisioning + (for biometrics) Touch ID +
+  a human. If/when built, they ship with a documented manual checklist, clearly
+  labeled "unverified in CI" — never presented as a tested feature.
 
 ## Phasing / milestones
 
@@ -258,35 +287,43 @@ codes and 163 `kSec*` globals**, too many to work from memory.
   - **Decision:** hand-written C stubs over ctypes; **no CF dependency**.
   All 7 spike assertions green via `dune exec ./spike/spike.exe`.
 
-- **Phase 1 — Generic password MVP.**
-  `Generic_password` set/get/delete (upsert semantics), accessibility classes,
-  data-protection keychain flag, `error` type via `SecCopyErrorMessageString`,
-  the layering above, unit tests + CI green.
+- **Phase 0.5 — Signing/scope probe. ✅ DONE.**
+  `spike/dp_probe.*` measured what an unsigned binary can reach (table under
+  Scope). Result: file-based works unsigned; the data-protection keychain is
+  `-34018` unsigned and kernel-killed with the restricted entitlement. Decision:
+  **v1 = file-based only**, DP/biometrics/sync deferred as provisioning-gated.
 
-- **Phase 2 — Internet passwords & richer queries.**
+- **Phase 1 — Generic password MVP (file-based).**
+  `Generic_password` set/get/delete with upsert (three-dict discipline) and
+  delete-safety; named `error` set off `errsec.tsv` + `SecCopyErrorMessageString`;
+  the C-stub/typed layering; `caml_release_runtime_system` around every call.
+  Alcotest suite (round-trip, error paths, binary fidelity, tag-table guard) +
+  CI green, all unsigned.
+
+- **Phase 2 — Internet passwords & richer queries (file-based).**
   `Internet_password` (server/protocol/port/path), return-attributes,
   `kSecMatchLimitAll` enumeration, explicit `update`.
 
-- **Phase 3 — Access control & sync.**
-  `SecAccessControlCreateWithFlags` (biometry / user-presence / passcode),
-  optional `LAContext`, `kSecAttrSynchronizable`, access groups. Manual test
-  checklist for biometric flows.
+- **Phase 3 — Ergonomics & release.**
+  `bytes` + wipe helpers, optional `osx-keychain-lwt`, docs/examples (including a
+  worked replacement for a `security`-CLI shell-out), then submit to
+  `opam-repository`.
 
-- **Phase 4 — Ergonomics & release.**
-  `bytes` + wipe helpers, optional `osx-keychain-lwt`, docs/examples, then
-  submit to `opam-repository`.
+- **Deferred (post-v1, only with a signed-app consumer + a way to test):**
+  the `Data_protection` backend, `kSecAttrAccessible` classes,
+  `SecAccessControlCreateWithFlags` biometric/`LAContext` gating,
+  `kSecAttrSynchronizable` / iCloud, access groups. Kept reachable by the
+  `backend`/`synchronizable` params already in the API; shipped (if ever) labeled
+  experimental + manual-test-only.
 
 ## Open questions
 
 1. ~~`cf` coverage vs. vendoring~~ — **resolved (Phase 0): no CF dependency; CF
    manipulation lives in the C stubs.**
-2. Isolated test keychain vs. data-protection keychain in CI to avoid unlock
-   prompts. (Phase 0 saw no prompt interactively, but headless CI agents have no
-   unlocked login keychain — still needs validating on a real runner.)
-3. Whether to expose `SecItemUpdate` directly in v1 or keep it behind upsert only.
-4. **Default backend** — recommendation is `File_based` (see "Open decision"
-   above); awaiting sign-off. Entitlement/signing needs for `Data_protection`,
-   access groups & iCloud sync are now documented in `keychain-notes.md` §3/§6.
+2. ~~DP keychain in CI~~ — **resolved (Phase 0.5): DP is unreachable unsigned;
+   no CI lane.** Still open: does a headless CI runner have an unlocked login
+   keychain for the *file-based* tests, or do we create an isolated test
+   keychain? Validate on a real runner.
+3. ~~Default backend~~ — **resolved: `File_based` default; DP deferred-experimental.**
+4. Whether to expose `SecItemUpdate` directly in v1 or keep it behind upsert only.
 5. Secret-erasure story: how hard to try given OCaml's moving GC — document limits vs. add a `bytes`-based zeroing path.
-6. Minimum macOS deployment target (affects which accessibility/access-control
-   constants are available — see `access_control_flags.tsv` `macos_since`).

@@ -107,6 +107,16 @@ let wipe b = Bytes.fill b 0 (Bytes.length b) '\000'
    (and may [wipe]). No extra copy. *)
 let to_bytes_opt = function Some s -> Some (Bytes.unsafe_of_string s) | None -> None
 
+(* Shared bracket behind [with_secret]: fetch via [get], run [f] on the
+   caller-owned buffer, and wipe it afterwards — even if [f] raises (the
+   exception propagates after the wipe). [f] runs only when present. *)
+let with_secret_of get f =
+  match get () with
+  | Error e -> Error e
+  | Ok None -> Ok None
+  | Ok (Some b) ->
+    Fun.protect ~finally:(fun () -> wipe b) (fun () -> Ok (Some (f b)))
+
 (* int-attrs = class + (data-protection flag) + caller-supplied extras. *)
 let iattrs ~item_class ~backend extra =
   let dp = match backend with File_based -> [] | Data_protection -> [ (i_use_dp, 1) ] in
@@ -150,6 +160,9 @@ module Generic_password = struct
 
   let get_bytes ?backend ~service ~account () =
     Result.map to_bytes_opt (get ?backend ~service ~account ())
+
+  let with_secret ?backend ~service ~account f =
+    with_secret_of (fun () -> get_bytes ?backend ~service ~account ()) f
 
   let mem ?(backend = File_based) ~service ~account () =
     let q_s = Array.of_list (id ~service ~account) in
@@ -226,6 +239,12 @@ module Internet_password = struct
   let get_bytes ?backend ?protocol ?port ?path ?security_domain ~server ~account () =
     Result.map to_bytes_opt
       (get ?backend ?protocol ?port ?path ?security_domain ~server ~account ())
+
+  let with_secret ?backend ?protocol ?port ?path ?security_domain ~server ~account f =
+    with_secret_of
+      (fun () ->
+        get_bytes ?backend ?protocol ?port ?path ?security_domain ~server ~account ())
+      f
 
   let delete ?(backend = File_based) ?protocol ?port ?path ?security_domain
       ~server ~account () =

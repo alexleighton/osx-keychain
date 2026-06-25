@@ -68,68 +68,32 @@ let () =
   | Error e          -> prerr_endline (to_string e)
 ```
 
-`set` is an upsert (create, or overwrite if `(service, account)` already
-exists). `delete` is idempotent — removing a missing item is `Ok ()`.
+## Usage
 
-## Replacing a `security` CLI call
+Worked examples for every operation below live in
+[`examples/readme_examples.ml`](examples/readme_examples.ml), each annotated with
+the equivalent `security` CLI command and the `Security.framework` call it
+exposes. That file is compiled on every `dune build`, so it never drifts from the
+API. (It is compiled, not run — executing it would touch your real keychain; the
+round-trips are exercised by the integration suite instead.)
 
-A common pattern is shelling out to read a password:
-
-```sh
-security find-generic-password -s "example-mail" -a "you@example.com" -w
-```
-
-The direct equivalent, with structured errors and no subprocess:
-
-```ocaml
-match Generic_password.get ~service:"example-mail" ~account:"you@example.com" () with
-| Ok (Some app_password) -> use app_password
-| Ok None                -> failwith "keychain item missing; add it first"
-| Error e                -> failwith (Osx_keychain.to_string e)
-```
-
-## Internet passwords
-
-Identified by `server` + `account`, plus optional `protocol` / `port` / `path` /
-`security_domain` (together the keychain's primary key — pass the same ones to
-`get`/`delete` that you used for `set`):
-
-```ocaml
-let () =
-  ignore (Internet_password.set
-            ~server:"imap.example.com" ~account:"alice"
-            ~protocol:Imaps ~port:993 "app-password");
-  match Internet_password.get
-          ~server:"imap.example.com" ~account:"alice"
-          ~protocol:Imaps ~port:993 () with
-  | Ok (Some pw) -> ignore pw
-  | _ -> ()
-```
-
-## Enumeration
-
-List items' identifying attributes (metadata only — no secrets are read, so no
-prompt):
-
-```ocaml
-match Generic_password.list ~service:"my-app" () with
-| Ok infos -> List.iter (fun i -> print_endline i.Generic_password.account) infos
-| Error _  -> ()
-```
-
-## Secret hygiene
-
-Secrets are `string` by default. For a buffer you can scrub after use, take the
-`bytes` variant and `wipe` it:
-
-```ocaml
-match Generic_password.get_bytes ~service:"my-app" ~account:"alice" () with
-| Ok (Some b) -> Fun.protect ~finally:(fun () -> Osx_keychain.wipe b) (fun () -> use b)
-| _ -> ()
-```
-
-This is best-effort: OCaml's GC may have made transient copies `wipe` can't
-reach, and the OS holds the secret in its own memory regardless.
+- **Generic passwords.** `Generic_password.set ~service ~account secret` stores
+  the item (upsert — create, or overwrite if `(service, account)` exists); `get`
+  returns `Ok (Some secret)` / `Ok None`; `delete` is idempotent (removing a
+  missing item is `Ok ()`).
+- **Replacing a `security` call.** `Generic_password.get` is the structured
+  stand-in for `security find-generic-password -s … -a … -w` — `Ok None` instead
+  of a non-zero exit, no subprocess, and no secret on stdout or in `ps`.
+- **Internet passwords.** `Internet_password.*` are keyed by `server` +
+  `account` plus optional `protocol` / `port` / `path` / `security_domain`
+  (together the keychain's primary key — pass the same identifying attributes to
+  `get`/`delete` that you used for `set`).
+- **Enumeration.** `Generic_password.list` / `Internet_password.list` return
+  items' identifying attributes only — metadata, no secrets, so no prompt.
+- **Secret hygiene.** `get_bytes` hands back a `bytes` buffer you can `wipe`
+  after use; `with_secret` runs a callback over a library-owned buffer and wipes
+  it for you, even if the callback raises. Best-effort: OCaml's GC may have made
+  transient copies `wipe` can't reach, and the OS holds the secret regardless.
 
 ## Error handling
 

@@ -71,7 +71,12 @@ val wipe : bytes -> unit
 module Generic_password : sig
   (** [set ?backend ?label ~service ~account secret] stores [secret], creating
       the item or overwriting an existing one (upsert). Returns [Error] only on
-      a real failure, never for "already exists". *)
+      a real failure, never for "already exists".
+
+      {b Framework:} [SecItemAdd] on a [kSecClassGenericPassword] item, falling
+      back to [SecItemUpdate] when it reports [errSecDuplicateItem].
+      {b CLI:} [security add-generic-password -U -s SERVICE -a ACCOUNT -w SECRET]
+      (the [-w] secret is visible to [ps]; this call passes it out-of-band). *)
   val set :
     ?backend:backend ->
     ?label:string ->
@@ -81,7 +86,11 @@ module Generic_password : sig
     (unit, error) result
 
   (** [get ?backend ~service ~account ()] returns [Ok (Some secret)] if present,
-      [Ok None] if no such item exists, and [Error] on a real failure. *)
+      [Ok None] if no such item exists, and [Error] on a real failure.
+
+      {b Framework:} [SecItemCopyMatching] with [kSecReturnData].
+      {b CLI:} [security find-generic-password -s SERVICE -a ACCOUNT -w] (which
+      exits non-zero on a miss, where this returns the typed [Ok None]). *)
   val get :
     ?backend:backend ->
     service:string ->
@@ -90,7 +99,11 @@ module Generic_password : sig
     (string option, error) result
 
   (** As {!get}, but returns the secret as a caller-owned mutable [bytes] that
-      can be {!wipe}d when no longer needed. *)
+      can be {!wipe}d when no longer needed.
+
+      {b Framework:} [SecItemCopyMatching] with [kSecReturnData] (as {!get}).
+      {b CLI:} [security find-generic-password -s SERVICE -a ACCOUNT -w] — but
+      the CLI writes the secret to stdout, leaving nothing to {!wipe}. *)
   val get_bytes :
     ?backend:backend ->
     service:string ->
@@ -98,8 +111,34 @@ module Generic_password : sig
     unit ->
     (bytes option, error) result
 
+  (** [with_secret ?backend ~service ~account f] fetches the secret, runs [f] on
+      a [bytes] buffer the library owns, and {!wipe}s that buffer before
+      returning — even if [f] raises (the exception propagates after the wipe).
+
+      [f] runs only when the item exists: the result is [Ok (Some (f buf))] if
+      present, [Ok None] if absent (so [f] is never called), and [Error] on a
+      real failure.
+
+      {b Do not let the buffer, or a copy of its bytes, escape [f]:} once
+      [with_secret] returns the buffer is zeroed, and — as with {!wipe} — the
+      garbage collector may still hold transient copies this cannot reach.
+
+      {b Framework:} [SecItemCopyMatching] with [kSecReturnData] (as {!get_bytes}).
+      {b CLI:} no equivalent — once [security find-generic-password -w] prints
+      the secret to stdout there is nothing to scrub. *)
+  val with_secret :
+    ?backend:backend ->
+    service:string ->
+    account:string ->
+    (bytes -> 'a) ->
+    ('a option, error) result
+
   (** [mem ?backend ~service ~account ()] is [Ok true] iff the item exists,
-      without returning its data. *)
+      without returning its data.
+
+      {b Framework:} [SecItemCopyMatching] without [kSecReturnData].
+      {b CLI:} [security find-generic-password -s SERVICE -a ACCOUNT] (no [-w]);
+      existence is the exit code. *)
   val mem :
     ?backend:backend ->
     service:string ->
@@ -108,7 +147,11 @@ module Generic_password : sig
     (bool, error) result
 
   (** [delete ?backend ~service ~account ()] removes the item. Idempotent:
-      deleting a missing item is [Ok ()], not an error. *)
+      deleting a missing item is [Ok ()], not an error.
+
+      {b Framework:} [SecItemDelete].
+      {b CLI:} [security delete-generic-password -s SERVICE -a ACCOUNT] (which
+      exits non-zero on a miss, where this returns [Ok ()]). *)
   val delete :
     ?backend:backend ->
     service:string ->
@@ -125,7 +168,12 @@ module Generic_password : sig
 
   (** [list ?backend ?service ()] returns the attributes of matching items —
       filtered to [service] if given, otherwise every generic-password item.
-      Returns metadata only, so it does not prompt for or expose secrets. *)
+      Returns metadata only, so it does not prompt for or expose secrets.
+
+      {b Framework:} [SecItemCopyMatching] with [kSecReturnAttributes] and
+      [kSecMatchLimitAll].
+      {b CLI:} no per-service equivalent — the nearest is [security dump-keychain],
+      which dumps every item and prompts repeatedly. *)
   val list :
     ?backend:backend ->
     ?service:string ->
@@ -139,7 +187,13 @@ end
     item ([get]/[delete]) must pass the same identifying attributes that [set]
     used, or they will not match. *)
 module Internet_password : sig
-  (** Store [secret], creating or overwriting (upsert). *)
+  (** Store [secret], creating or overwriting (upsert).
+
+      {b Framework:} [SecItemAdd] on a [kSecClassInternetPassword] item, falling
+      back to [SecItemUpdate] on [errSecDuplicateItem]; [protocol]/[port] map to
+      [kSecAttrProtocol]/[kSecAttrPort].
+      {b CLI:} [security add-internet-password -U -s SERVER -a ACCOUNT -r imps
+      -P 993 -w SECRET] ([-r] is the 4-char protocol code: imps = IMAPS, …). *)
   val set :
     ?backend:backend ->
     ?label:string ->
@@ -152,7 +206,11 @@ module Internet_password : sig
     string ->
     (unit, error) result
 
-  (** [Ok (Some secret)] if present, [Ok None] if absent. *)
+  (** [Ok (Some secret)] if present, [Ok None] if absent.
+
+      {b Framework:} [SecItemCopyMatching] with [kSecReturnData].
+      {b CLI:} [security find-internet-password -s SERVER -a ACCOUNT -r imps
+      -P 993 -w]. *)
   val get :
     ?backend:backend ->
     ?protocol:protocol ->
@@ -164,7 +222,11 @@ module Internet_password : sig
     unit ->
     (string option, error) result
 
-  (** As {!get}, but returns the secret as a caller-owned mutable [bytes]. *)
+  (** As {!get}, but returns the secret as a caller-owned mutable [bytes].
+
+      {b Framework:} [SecItemCopyMatching] with [kSecReturnData] (as {!get}).
+      {b CLI:} [security find-internet-password … -w] — but the CLI writes the
+      secret to stdout, leaving nothing to {!wipe}. *)
   val get_bytes :
     ?backend:backend ->
     ?protocol:protocol ->
@@ -176,7 +238,29 @@ module Internet_password : sig
     unit ->
     (bytes option, error) result
 
-  (** Remove the item; idempotent (missing item is [Ok ()]). *)
+  (** As {!Generic_password.with_secret}: runs [f] on a library-owned [bytes]
+      buffer and {!wipe}s it before returning (even if [f] raises). [f] runs
+      only when the item exists; the same escape caveat applies.
+
+      {b Framework:} [SecItemCopyMatching] with [kSecReturnData] (as {!get_bytes}).
+      {b CLI:} no equivalent — [security find-internet-password -w] prints the
+      secret to stdout, leaving nothing to scrub. *)
+  val with_secret :
+    ?backend:backend ->
+    ?protocol:protocol ->
+    ?port:int ->
+    ?path:string ->
+    ?security_domain:string ->
+    server:string ->
+    account:string ->
+    (bytes -> 'a) ->
+    ('a option, error) result
+
+  (** Remove the item; idempotent (missing item is [Ok ()]).
+
+      {b Framework:} [SecItemDelete].
+      {b CLI:} [security delete-internet-password -s SERVER -a ACCOUNT -r imps
+      -P 993] (exits non-zero on a miss, where this returns [Ok ()]). *)
   val delete :
     ?backend:backend ->
     ?protocol:protocol ->
@@ -199,7 +283,12 @@ module Internet_password : sig
   }
 
   (** [list ?backend ?server ?protocol ()] returns matching items' attributes,
-      optionally filtered by [server] and/or [protocol]. Metadata only. *)
+      optionally filtered by [server] and/or [protocol]. Metadata only.
+
+      {b Framework:} [SecItemCopyMatching] with [kSecReturnAttributes] and
+      [kSecMatchLimitAll].
+      {b CLI:} no filtered equivalent — the nearest is [security dump-keychain],
+      which dumps every item and prompts repeatedly. *)
   val list :
     ?backend:backend ->
     ?server:string ->

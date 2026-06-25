@@ -101,6 +101,45 @@ let test_get_bytes_and_wipe () =
   Alcotest.(check string) "wiped to zeros" (String.make 7 '\000') (Bytes.to_string b);
   cleanup account
 
+let test_with_secret_present () =
+  let account = "with-secret" in
+  cleanup account;
+  ok (Generic_password.set ~service ~account "wipe-me");
+  (* capture the buffer f saw, to assert it was wiped after f returned *)
+  let seen = ref Bytes.empty in
+  let result =
+    ok (Generic_password.with_secret ~service ~account (fun b ->
+        seen := b;
+        Bytes.to_string b))
+  in
+  Alcotest.check opt_string "f sees the secret" (Some "wipe-me") result;
+  Alcotest.(check string) "buffer wiped after f returns"
+    (String.make 7 '\000') (Bytes.to_string !seen);
+  cleanup account
+
+let test_with_secret_missing () =
+  let account = "with-secret-missing" in
+  cleanup account;
+  let ran = ref false in
+  let result = ok (Generic_password.with_secret ~service ~account (fun _ -> ran := true; ())) in
+  Alcotest.(check (option unit)) "absent item is Ok None" None result;
+  Alcotest.(check bool) "f not called when absent" false !ran
+
+let test_with_secret_wipes_on_raise () =
+  let account = "with-secret-raise" in
+  cleanup account;
+  ok (Generic_password.set ~service ~account "wipe-me");
+  let seen = ref Bytes.empty in
+  let exception Boom in
+  (match
+     Generic_password.with_secret ~service ~account (fun b -> seen := b; raise Boom)
+   with
+   | exception Boom -> ()
+   | _ -> Alcotest.fail "expected f's exception to propagate");
+  Alcotest.(check string) "buffer wiped even when f raises"
+    (String.make 7 '\000') (Bytes.to_string !seen);
+  cleanup account
+
 let test_generic_list () =
   let svc = service ^ ".list" in
   let accounts = [ "a1"; "a2"; "a3" ] in
@@ -183,6 +222,9 @@ let () =
       case "mem" test_mem;
       case "label" test_label;
       case "get_bytes + wipe" test_get_bytes_and_wipe;
+      case "with_secret present" test_with_secret_present;
+      case "with_secret missing skips f" test_with_secret_missing;
+      case "with_secret wipes on raise" test_with_secret_wipes_on_raise;
       case "list / enumerate" test_generic_list ]
   in
   let internet =

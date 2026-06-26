@@ -9,7 +9,7 @@ subprocess, and attribute enumeration.
 
 v1 targets the file-based keychain (works on unsigned binaries, no entitlements).
 The data-protection keychain, biometrics, and iCloud sync require Apple Developer
-provisioning and are out of scope / experimental — see PLAN.md."""
+provisioning and are out of scope / experimental."""
 maintainer: ["Alex Leighton <axlelonghorn@gmail.com>"]
 authors: ["Alex Leighton <axlelonghorn@gmail.com>"]
 license: "MIT"

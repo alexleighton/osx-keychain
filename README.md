@@ -23,7 +23,8 @@ The data-protection keychain, Touch ID / `SecAccessControl`, and iCloud sync are
 **out of scope**: they require an Apple Developer provisioning profile both to
 use and to test (an unsigned process gets `errSecMissingEntitlement` or is killed
 by the kernel). A `Data_protection` backend parameter exists but is experimental
-and unverified. See [`PLAN.md`](PLAN.md) for the full rationale.
+and unverified. See [`reference/keychain-notes.md`](reference/keychain-notes.md)
+(§1, §3) for the full entitlement/provisioning rationale.
 
 macOS only.
 

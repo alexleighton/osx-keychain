@@ -8,7 +8,7 @@
     [?backend] parameter but is {b experimental}: it requires a code-signing
     provisioning profile (an Apple Developer Team ID) to use at all, and an
     unsigned process gets {!Missing_entitlement} or is killed by the kernel. See
-    [PLAN.md]. *)
+    [reference/keychain-notes.md] (§1, §3) for the full rationale. *)
 
 (** Which keychain to target. [File_based] is the default everywhere. *)
 type backend =

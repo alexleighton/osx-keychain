@@ -60,8 +60,12 @@ jobs:
           security set-keychain-settings "$KEYCHAIN"   # no auto-lock timeout
           security unlock-keychain -p "" "$KEYCHAIN"
           security default-keychain -s "$KEYCHAIN"
-          security list-keychains -d user -s "$KEYCHAIN" \
-            $(security list-keychains -d user | sed 's/"//g')
+          # Make the test keychain the SOLE entry in the user search list.
+          # Appending the existing list would list it twice (create/default-
+          # keychain already insert it), and SecItemCopyMatching with
+          # kSecMatchLimitAll enumerates every item once per duplicate entry —
+          # which showed up as doubled `list` results.
+          security list-keychains -d user -s "$KEYCHAIN"
 
       - name: Integration tests (real keychain round-trips)
         run: opam exec -- dune build @integration

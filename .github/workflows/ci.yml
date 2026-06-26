@@ -31,13 +31,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Lint opam metadata
-        run: opam lint osx-keychain.opam
-
       - name: Set up OCaml ${{ matrix.ocaml-compiler }}
         uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: ${{ matrix.ocaml-compiler }}
+
+      - name: Lint opam metadata
+        run: opam lint osx-keychain.opam
 
       - name: Install dependencies
         run: opam install . --deps-only --with-test

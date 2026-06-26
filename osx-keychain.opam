@@ -18,7 +18,7 @@ homepage: "https://github.com/alexleighton/osx-keychain"
 bug-reports: "https://github.com/alexleighton/osx-keychain/issues"
 depends: [
   "dune" {>= "3.0"}
-  "ocaml" {>= "4.08"}
+  "ocaml" {>= "4.14.0"}
   "alcotest" {with-test}
   "odoc" {with-doc}
 ]

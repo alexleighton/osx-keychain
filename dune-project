@@ -22,5 +22,5 @@
   ("macos" "keychain" "security" "password" "bindings"))
  (depends
   (ocaml
-   (>= 4.08))
+   (>= "4.14.0"))
   (alcotest :with-test)))

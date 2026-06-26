@@ -35,6 +35,5 @@ exercised by a test).
 
 These TSVs contain only **symbol names and their integer values** — facts
 extracted from the system SDK headers, not the headers' copyrighted text. We do
-**not** vendor Apple's header files. Regenerate with the extraction commands
-recorded in the project history (they read the local Command Line Tools SDK via
-`xcrun --show-sdk-path`).
+**not** vendor Apple's header files. To regenerate, re-extract these symbols from
+the SDK headers named in the table above (located via `xcrun --show-sdk-path`).

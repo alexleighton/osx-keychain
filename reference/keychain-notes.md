@@ -62,13 +62,17 @@ most people porting iOS code expect. On iOS there is only one keychain and the k
 
 ### Implication for our binding's defaults
 
-**Default to setting `kSecUseDataProtectionKeychain = true` on every operation** (add, copy,
-update, delete), and make it the documented norm. Rationale: it is the non-deprecated, well-
-aligned, iOS-consistent path, and it walls our deletes/queries off from the shared system
-file-based keychain. The big caveat — see §3 — is that the DP keychain **requires
-entitlements**, so an unsigned/library/test binary can't use it without setup. Therefore the
-binding should expose the choice explicitly (e.g. a `~data_protection:bool` param) with DP as
-the recommended default, and document the entitlement requirement loudly.
+There is a real pull toward the DP keychain: it is the non-deprecated, well-aligned,
+iOS-consistent path, and it walls our deletes/queries off from the shared system file-based
+keychain. But the decisive caveat — see §3 — is that the DP keychain **requires entitlements**,
+so an unsigned binary (the common case for a CLI tool, daemon, or library, and for the test
+suite itself) can't use it at all without code-signing setup; it gets `-34018` or is killed.
+
+**So v1 defaults to the file-based keychain** (`File_based`), the path that works unsigned with
+no entitlements. The choice is exposed explicitly via the `?backend` parameter
+(`File_based | Data_protection`), with file-based as the default and DP marked experimental and
+unverified pending an entitlement/provisioning story. The entitlement requirement is documented
+loudly so a caller who reaches for `Data_protection` knows what it costs.
 
 ---
 

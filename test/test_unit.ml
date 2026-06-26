@@ -63,12 +63,84 @@ let test_errsec_guard () =
             (code_of_status v = expected))
       cases
 
+(* Guard: every kSec* key keychain_stubs.c references must exist in
+   reference/ksec.tsv (extracted from the SDK), so a mistyped key — which the C
+   compiler accepts as an extern and only fails at link/runtime — fails loudly
+   here instead. The names live in C (not OCaml values), so we scrape them from
+   the source and check membership. Paths come from the environment via dune. *)
+let read_file path =
+  let ic = open_in_bin path in
+  Fun.protect ~finally:(fun () -> close_in_noerr ic) (fun () ->
+    really_input_string ic (in_channel_length ic))
+
+let is_alnum c =
+  (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+
+let is_ident_char c = is_alnum c || c = '_'
+
+(* Distinct identifiers matching [kSec][A-Za-z0-9]* that begin a token. *)
+let ksec_idents s =
+  let n = String.length s in
+  let seen = Hashtbl.create 64 in
+  let i = ref 0 in
+  while !i < n do
+    if
+      !i + 4 <= n
+      && String.sub s !i 4 = "kSec"
+      && (!i = 0 || not (is_ident_char s.[!i - 1]))
+    then begin
+      let j = ref (!i + 4) in
+      while !j < n && is_alnum s.[!j] do incr j done;
+      (* Require at least one char after "kSec" — a bare "kSec" is prose (e.g. a
+         "kSec* keys" comment), not a symbol. *)
+      if !j > !i + 4 then Hashtbl.replace seen (String.sub s !i (!j - !i)) ();
+      i := !j
+    end
+    else incr i
+  done;
+  Hashtbl.fold (fun k () acc -> k :: acc) seen []
+
+let parse_names path =
+  let tbl = Hashtbl.create 256 in
+  let ic = open_in path in
+  Fun.protect ~finally:(fun () -> close_in_noerr ic) (fun () ->
+    (try ignore (input_line ic) with End_of_file -> ());
+    try
+      while true do
+        match String.split_on_char '\t' (input_line ic) with
+        | name :: _ when String.trim name <> "" ->
+          Hashtbl.replace tbl (String.trim name) ()
+        | _ -> ()
+      done
+    with End_of_file -> ());
+  tbl
+
+let test_ksec_guard () =
+  match
+    (Sys.getenv_opt "OSX_KEYCHAIN_KSEC_TSV", Sys.getenv_opt "OSX_KEYCHAIN_STUBS_C")
+  with
+  | Some tsv, Some stubs ->
+    let known = parse_names tsv in
+    let used = ksec_idents (read_file stubs) in
+    (* A wrong path would scrape nothing and pass vacuously; require a baseline. *)
+    Alcotest.(check bool) "found kSec* references in the stubs" true (used <> []);
+    let missing = List.filter (fun n -> not (Hashtbl.mem known n)) used in
+    Alcotest.(check (list string)) "every kSec* key is in ksec.tsv" []
+      (List.sort compare missing)
+  | _ -> Alcotest.fail "ksec TSV or stubs path not provided"
+
 let () =
   let case name f = Alcotest.test_case name `Quick f in
   let guard =
-    match Sys.getenv_opt "OSX_KEYCHAIN_ERRSEC_TSV" with
-    | Some _ -> [ case "errSec values match SDK" test_errsec_guard ]
-    | None -> []
+    (match Sys.getenv_opt "OSX_KEYCHAIN_ERRSEC_TSV" with
+     | Some _ -> [ case "errSec values match SDK" test_errsec_guard ]
+     | None -> [])
+    @
+    match
+      (Sys.getenv_opt "OSX_KEYCHAIN_KSEC_TSV", Sys.getenv_opt "OSX_KEYCHAIN_STUBS_C")
+    with
+    | Some _, Some _ -> [ case "kSec names exist in ksec.tsv" test_ksec_guard ]
+    | _ -> []
   in
   Alcotest.run "osx-keychain-unit"
     [ ("error",

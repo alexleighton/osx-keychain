@@ -7,7 +7,9 @@
  (libraries osx_keychain alcotest)
  (action
   (setenv OSX_KEYCHAIN_ERRSEC_TSV %{dep:../reference/errsec.tsv}
-   (run %{test} --compact))))
+   (setenv OSX_KEYCHAIN_KSEC_TSV %{dep:../reference/ksec.tsv}
+    (setenv OSX_KEYCHAIN_STUBS_C %{dep:../lib/keychain_stubs.c}
+     (run %{test} --compact))))))
 
 ; Integration tests: hit the real login keychain, so they are kept OFF the
 ; `runtest` alias — neither `dune runtest`, `opam install --with-test`, nor the

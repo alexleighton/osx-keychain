@@ -38,3 +38,8 @@ build: [
 ]
 dev-repo: "git+https://github.com/alexleighton/osx-keychain.git"
 available: [ os = "macos" ]
+
+# Voluntary AI disclosure — https://github.com/avsm/ocaml-ai-disclosure
+x-ai-disclosure: "ai-generated"
+x-ai-model: "claude-opus-4-8"
+x-ai-provider: "Anthropic"

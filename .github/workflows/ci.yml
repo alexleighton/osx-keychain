@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A newer push to the same ref supersedes in-flight runs.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / ocaml ${{ matrix.ocaml-compiler }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-latest is Apple Silicon (arm64). The package is macOS-only
+        # (available: [ os = "macos" ]).
+        os: [macos-latest]
+        ocaml-compiler:
+          - "4.14" # declared lower bound (lowest release with an arm64 backend)
+          - "5"    # latest release — forward-compat
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up OCaml ${{ matrix.ocaml-compiler }}
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: ${{ matrix.ocaml-compiler }}
+
+      - name: Lint opam metadata
+        run: opam lint osx-keychain.opam
+
+      - name: Install dependencies
+        run: opam install . --deps-only --with-test
+
+      - name: Build
+        run: opam exec -- dune build
+
+      - name: Unit tests (pure — no keychain access)
+        run: opam exec -- dune runtest
+
+      - name: Set up a disposable, unlocked keychain
+        # The integration suite exercises the file-based (default) keychain.
+        # Point the default search list at a throwaway, never-locking keychain so
+        # the round-trips run deterministically and never touch anything real.
+        # (Settles the long-open question of whether a CI runner has an unlocked
+        # keychain available — we provide one.)
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/osx-keychain-ci.keychain-db"
+          security create-keychain -p "" "$KEYCHAIN"
+          security set-keychain-settings "$KEYCHAIN"   # no auto-lock timeout
+          security unlock-keychain -p "" "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          # Make the test keychain the SOLE entry in the user search list.
+          # Appending the existing list would list it twice (create/default-
+          # keychain already insert it), and SecItemCopyMatching with
+          # kSecMatchLimitAll enumerates every item once per duplicate entry —
+          # which showed up as doubled `list` results.
+          security list-keychains -d user -s "$KEYCHAIN"
+
+      - name: Integration tests (real keychain round-trips)
+        run: opam exec -- dune build @integration

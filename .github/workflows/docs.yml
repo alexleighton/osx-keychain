@@ -45,6 +45,31 @@ jobs:
       - name: Build docs
         run: opam exec -- dune build @doc
 
+      - name: Redirect site root to the package page
+        # dune's odoc driver emits a multi-package list at the site root; with a
+        # single package that's a near-empty page one click from the real docs.
+        # odoc's shared assets live at the tree root (odoc.support/) and the
+        # package page references them relatively (../odoc.support/...), so we
+        # can't just publish the subdirectory — instead overwrite the root index
+        # with a redirect straight to the osx-keychain package page.
+        run: |
+          # dune marks @doc output read-only, so make the file writable first.
+          chmod u+w _build/default/_doc/_html/index.html
+          cat > _build/default/_doc/_html/index.html <<'HTML'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+          <meta charset="utf-8">
+          <title>osx-keychain</title>
+          <meta http-equiv="refresh" content="0; url=./osx-keychain/index.html">
+          <link rel="canonical" href="./osx-keychain/index.html">
+          </head>
+          <body>
+          <p><a href="./osx-keychain/index.html">Redirecting to the osx-keychain documentation…</a></p>
+          </body>
+          </html>
+          HTML
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 

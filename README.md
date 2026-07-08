@@ -13,6 +13,8 @@ retrieving passwords — a structured alternative to shelling out to
 - **Tiny dependency footprint.** Hand-written C stubs over `Security.framework`;
   no `ctypes`, no CoreFoundation binding — just `dune`.
 
+📖 **[API documentation](https://alexleighton.github.io/osx-keychain/)**
+
 ## Scope
 
 v1 targets the **file-based keychain** (the login keychain reached by the

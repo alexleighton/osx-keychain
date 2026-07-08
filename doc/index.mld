@@ -1,0 +1,38 @@
+{0 osx-keychain}
+
+Typed OCaml bindings to the macOS Keychain (the [SecItem*] API) for storing and
+retrieving passwords — a structured alternative to shelling out to
+[/usr/bin/security].
+
+- {b Structured results.} Real [OSStatus] codes and a typed [result]; "not
+  found" is [Ok None], not a string you have to grep for.
+- {b Exact binary round-trip.} Secrets with embedded NULs / high bytes survive
+  intact (the [security] CLI hex-dumps them).
+- {b No subprocess.} No process spawn per call; secrets don't pass through argv,
+  stdout, the process table, or shell history.
+- {b Tiny dependency footprint.} Hand-written C stubs over [Security.framework];
+  no [ctypes], no CoreFoundation binding — just [dune].
+
+{1 API reference}
+
+The entry point is the {!module:Osx_keychain} module: {!module:Osx_keychain.Generic_password}
+for service/account secrets and {!module:Osx_keychain.Internet_password} for
+server-keyed credentials.
+
+{1 Scope}
+
+v1 targets the {b file-based keychain} (the login keychain reached by the
+[security] CLI). It works on {b unsigned binaries with no entitlements} — the
+common case for CLI tools and daemons.
+
+The data-protection keychain, Touch ID / [SecAccessControl], and iCloud sync are
+out of scope: they require an Apple Developer provisioning profile both to use
+and to test. A [Data_protection] backend parameter exists but is experimental and
+unverified.
+
+macOS only.
+
+{1 Links}
+
+- {{:https://github.com/alexleighton/osx-keychain} Source on GitHub}
+- {{:https://ocaml.org/p/osx-keychain/latest} Package on ocaml.org}

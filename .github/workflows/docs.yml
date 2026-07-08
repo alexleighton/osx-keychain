@@ -1,0 +1,58 @@
+name: Docs
+
+# Build the odoc API docs and publish them to GitHub Pages.
+#
+# The package links Security.framework / CoreFoundation, so it only builds on
+# macOS — the docs are built on a macOS runner too. The Pages actions are
+# cross-platform, so a single macOS job builds, uploads, and deploys.
+
+on:
+  push:
+    branches: [main]
+  # Allow a manual re-deploy from the Actions tab.
+  workflow_dispatch:
+
+# Pages needs to mint an OIDC token and write the deployment.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; never cancel an in-flight one (Pages' recommendation).
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    name: Build odoc + deploy to Pages
+    runs-on: macos-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5"
+
+      - name: Install doc dependencies (odoc)
+        run: opam install . --deps-only --with-doc
+
+      - name: Build docs
+        run: opam exec -- dune build @doc
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload docs artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _build/default/_doc/_html
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

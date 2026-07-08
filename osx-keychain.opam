@@ -15,6 +15,7 @@ authors: ["Alex Leighton <axlelonghorn@gmail.com>"]
 license: "MIT"
 tags: ["macos" "keychain" "security" "password" "bindings"]
 homepage: "https://github.com/alexleighton/osx-keychain"
+doc: "https://alexleighton.github.io/osx-keychain/"
 bug-reports: "https://github.com/alexleighton/osx-keychain/issues"
 depends: [
   "dune" {>= "3.0"}

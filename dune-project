@@ -7,6 +7,8 @@
 (source
  (github alexleighton/osx-keychain))
 
+(documentation "https://alexleighton.github.io/osx-keychain/")
+
 (license MIT)
 
 (authors "Alex Leighton <axlelonghorn@gmail.com>")

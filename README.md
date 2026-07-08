@@ -13,6 +13,8 @@ retrieving passwords — a structured alternative to shelling out to
 - **Tiny dependency footprint.** Hand-written C stubs over `Security.framework`;
   no `ctypes`, no CoreFoundation binding — just `dune`.
 
+📖 **[API documentation](https://alexleighton.github.io/osx-keychain/)**
+
 ## Scope
 
 v1 targets the **file-based keychain** (the login keychain reached by the
@@ -30,8 +32,16 @@ macOS only.
 
 ## Install
 
-Not yet published to opam. For a hermetic local setup, create a project-local
-opam switch from the declared dependencies:
+```sh
+opam install osx-keychain
+```
+
+Then depend on the `osx-keychain` library (module `Osx_keychain`).
+
+### From source
+
+For a hermetic local setup, create a project-local opam switch from the declared
+dependencies:
 
 ```sh
 ./scripts/setup-switch.sh   # creates ./_opam with deps (incl. test deps)
@@ -53,8 +63,6 @@ to preview) — it deletes only the test-owned items via the `security` CLI.
 `setup-switch.sh` is idempotent — re-run it to pick up new dependencies. Pin a
 compiler with `OCAML_COMPILER=5.3.0 ./scripts/setup-switch.sh`. If you already
 have a suitable switch, just `dune build` / `dune runtest` directly.
-
-In a project, depend on the `osx-keychain` library (module `Osx_keychain`).
 
 ## Quickstart
 
